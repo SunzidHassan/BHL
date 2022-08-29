@@ -3,7 +3,7 @@
 ## Data sources and update routine (data source, code)####
 # Daily:
 # BHL IN: Add/replace latest CBU,CKD & Localization Containers Arrival Details Status report
-# Production and Sales:add/replace since unsold cbu's KDP data
+# Production and Sales:add/replace since unsold CBU's KDP data
 
 # Monthly:
 # Order: update OrderPI file with date_month_ki_BHL_Order_CKD, date_month_ki_BHL_Order_CBU files from Nahin San 
@@ -1027,6 +1027,15 @@ BHLInQuant <- select(OrderPiDiBHLInProdSales, c("PIDI_ModelName", "PIDI_Color", 
   rename(monthYear = BHLArrivalMonth) %>%
   distinct(PIDI_ModelName, PIDI_Color, BHLOrderMonthYear, DiSl, monthlyBHLInSl, monthYear, BHLInQuantity)
 
+#Selecting transit data
+CKDinTransit <- select(OrderPiDiBHLInProdSales, c("PIDI_ModelName", "PIDI_Color", "DiSl",
+                                                  "BHLOrderMonthYear",
+                                                  "DIMonthYear", "CKDinTransit")) %>%
+  filter(CKDinTransit > 0) %>%
+  rename(monthYear = DIMonthYear) %>%
+  distinct(PIDI_ModelName, PIDI_Color, BHLOrderMonthYear, DiSl, monthYear, CKDinTransit)
+
+
 #Selecting unused CKD data
 unusedCKDQuant <- select(OrderPiDiBHLInProdSales, c("PIDI_ModelName", "PIDI_Color", "DiSl", "monthlyBHLInSl", "monthlyProdSl",
                                                     "BHLOrderMonthYear",
@@ -1075,8 +1084,13 @@ unusedCBUQuant <- select(OrderPiDiBHLInProdSales, c("PIDI_ModelName", "PIDI_Colo
   rename(monthYear = prodMonth) %>%
   distinct(PIDI_ModelName, PIDI_Color, BHLOrderMonthYear, DiSl, monthlyBHLInSl, monthlyProdSl, monthYear, unusedCBU)
 
+
+
 #Merging all
-OrderPiDiBHLInProdSalesFlat <- merge(merge(merge(merge(merge(merge(merge(merge(orderQuant, diQuant,
+OrderPiDiBHLInProdSalesFlat <- merge(merge(merge(merge(merge(merge(merge(merge(merge(orderQuant, diQuant,
+                                                                                     all = T,
+                                                                                     by = c("PIDI_ModelName", "PIDI_Color", "BHLOrderMonthYear", "DiSl", "monthYear")),
+                                                                               CKDinTransit,
                                                                                all = T,
                                                                                by = c("PIDI_ModelName", "PIDI_Color", "BHLOrderMonthYear", "DiSl", "monthYear")),
                                                                          BHLInQuant,
@@ -1107,17 +1121,93 @@ OrderPiDiBHLInProdSalesFlat <- melt.data.table(OrderPiDiBHLInProdSalesFlat,
                                                variable.name = "Type",
                                                value.name = "Quantity")
 
+OrderPiDiBHLInProdSalesFlat <- OrderPiDiBHLInProdSalesFlat[!is.na(Quantity)]
 
+#Remove production serial from BHL In
+OrderPiDiBHLInProdSalesFlat[Type == "BHLInQuantity", c("monthlyProdSl")] <- NA
+
+# Arrange values for adding sales serial
+OrderPiDiBHLInProdSalesFlat <- OrderPiDiBHLInProdSalesFlat %>%
+  dplyr::arrange(PIDI_ModelName, PIDI_Color, BHLOrderMonthYear, DiSl, monthlyBHLInSl, monthlyProdSl, monthYear)
+
+# Add sales serial
+salesFilter <- filter(OrderPiDiBHLInProdSalesFlat, !is.na(Quantity), Type == "monthlyKDPSales")
+salesFilter$monthlySalesSl <- 1:nrow(salesFilter)
+
+# Merge sales serial with flat data
+OrderPiDiBHLInProdSalesFlat <- merge(OrderPiDiBHLInProdSalesFlat, salesFilter,
+                                     by = c("PIDI_ModelName", "PIDI_Color", "BHLOrderMonthYear",
+                                            "DiSl", "monthlyBHLInSl", "monthlyProdSl",
+                                            "monthYear", "Type", "Quantity"),
+                                     all.x = T, all.y = F)
+
+# Rank of multiple BHL In, Production, Sales, etc.####
+
+# Input data for BHL In rank
+intemp1 <- OrderPiDiBHLInProdSalesFlat %>% filter(!is.na(Quantity), Type == "BHLInQuantity")
+
+# BHL in rank
+outtemp1 <- intemp1 %>% group_by(DiSl) %>%
+  mutate(monthlyBHLInSlRank = order(order(DiSl, monthlyBHLInSl, decreasing = FALSE))) %>%
+  select(c("DiSl", "monthlyBHLInSl", "monthlyBHLInSlRank"))
+
+# Input data for production rank
+intemp2 <- OrderPiDiBHLInProdSalesFlat %>% filter(!is.na(Quantity), Type == "monthlyKDPProd")
+
+# Production rank
+outtemp2 <- intemp2 %>% group_by(DiSl, monthlyBHLInSl) %>%
+  mutate(monthlyProdSlRank = order(order(DiSl, monthlyBHLInSl, monthlyProdSl, decreasing = FALSE))) %>%
+  select(c("DiSl", "monthlyBHLInSl", "monthlyProdSl", "monthlyProdSlRank"))
+
+# Input data for sales rank
+intemp3 <- OrderPiDiBHLInProdSalesFlat %>% filter(!is.na(Quantity), Type == "monthlyKDPSales")
+
+# Sales rank
+outtemp3 <- intemp3 %>% group_by(DiSl, monthlyBHLInSl, monthlyProdSl) %>%
+  mutate(monthlySalesSlRank = order(order(DiSl, monthlyBHLInSl, monthlyProdSl, monthlySalesSl, decreasing = FALSE))) %>%
+  select(c("DiSl", "monthlyBHLInSl", "monthlyProdSl", "monthlySalesSl", "monthlySalesSlRank"))
+
+# Didn't worked: merging rank together, and then adding with main data
+# outtemp <- merge(merge(outtemp3, outtemp2, all = T),
+#                  outtemp1, all = T)
+# 
+# 
+# OrderPiDiBHLInProdSalesFlat2 <- merge(OrderPiDiBHLInProdSalesFlat, outtemp,
+#                                       all.x = T, all.y = F,
+#                                       by = c("DiSl", "monthlyBHLInSl", "monthlyProdSl", "monthlySalesSl")) %>%
+#   select(c("PIDI_ModelName", "PIDI_Color", "BHLOrderMonthYear",
+#            "DiSl", "monthlyBHLInSl", "monthlyProdSl", "monthlySalesSl",
+#            "Type", "monthYear", "Quantity",
+#            "monthlyBHLInSlRank", "monthlyProdSlRank", "monthlySalesSlRank"))
+
+# Merging BHL in rank with main data
+OrderPiDiBHLInProdSalesFlat2 <- merge(OrderPiDiBHLInProdSalesFlat, outtemp1,
+                                      all.x = T, all.y = F,
+                                      by = c("DiSl", "monthlyBHLInSl"))
+
+# Merging production rank with main data
+OrderPiDiBHLInProdSalesFlat2 <- merge(OrderPiDiBHLInProdSalesFlat2, outtemp2,
+                                      all.x = T, all.y = F,
+                                      by = c("DiSl", "monthlyBHLInSl", "monthlyProdSl"))
+
+# Merging sales rank with main data, organizing columns
+OrderPiDiBHLInProdSalesFlat2 <- merge(OrderPiDiBHLInProdSalesFlat2, outtemp3,
+                                      all.x = T, all.y = F,
+                                      by = c("DiSl", "monthlyBHLInSl", "monthlyProdSl", "monthlySalesSl")) %>%
+  select(c("PIDI_ModelName", "PIDI_Color", "BHLOrderMonthYear",
+           "DiSl", "monthlyBHLInSl", "monthlyProdSl", "monthlySalesSl",
+           "Type", "monthYear", "Quantity",
+           "monthlyBHLInSlRank", "monthlyProdSlRank", "monthlySalesSlRank"))
 
 #Part 9: Export####
 
-write.csv(OrderPiDiBHLInProdSales, "Output/valueChain/OrderPiDiBHLInProdSales.csv",
-          na = "NA")
+write.csv(OrderPiDiBHLInProdSales, "Output/valueChain/OrderPiDiBHLInProdSales.csv", na = "NA")
 
-write.csv(OrderPiDiBHLInProdSalesFlat, "Output/valueChain/OrderPiDiBHLInProdSalesFlat.csv")
+write.csv(OrderPiDiBHLInProdSalesFlat2, "Output/valueChain/OrderPiDiBHLInProdSalesFlat.csv", na = "NA")
 
-write.csv(OrderPiDiBHLInProdSalesNonDuplicate, "Output/valueChain/OrderPiDiBHLInProdSalesnoDuplicate.csv",
-          na = "NA")
+write.csv(OrderPiDiBHLInProdSalesNonDuplicate, "Output/valueChain/OrderPiDiBHLInProdSalesnoDuplicate.csv", na = "NA")
+
+
 
 # rm(diMC, i, BHLInCycleProd, BHLInQuant, DIBHLIn, DICycleBHLIn, diMC, DIPILU, diQuant,
 #    modelCode, orderPi, OrderPiDi, orderQuant, PIColorsl, prodCycleSales, prodDays, prodKDPDI,
