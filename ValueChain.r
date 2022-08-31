@@ -1037,12 +1037,12 @@ CKDinTransit <- select(OrderPiDiBHLInProdSales, c("PIDI_ModelName", "PIDI_Color"
 
 
 #Selecting unused CKD data
-unusedCKDQuant <- select(OrderPiDiBHLInProdSales, c("PIDI_ModelName", "PIDI_Color", "DiSl", "monthlyBHLInSl", "monthlyProdSl",
+unusedCKDQuant <- select(OrderPiDiBHLInProdSales, c("PIDI_ModelName", "PIDI_Color", "DiSl", "monthlyBHLInSl",
                                                     "BHLOrderMonthYear",
                                                     "BHLArrivalMonth", "unusedCKD")) %>%
   filter(unusedCKD > 0) %>%
   rename(monthYear = BHLArrivalMonth) %>%
-  distinct(PIDI_ModelName, PIDI_Color, BHLOrderMonthYear, DiSl, monthlyBHLInSl, monthlyProdSl, monthYear, unusedCKD)
+  distinct(PIDI_ModelName, PIDI_Color, BHLOrderMonthYear, DiSl, monthlyBHLInSl, monthYear, unusedCKD)
 
 #Selecting production data
 prodQuant <- select(OrderPiDiBHLInProdSales, c("PIDI_ModelName", "PIDI_Color", "DiSl", "monthlyBHLInSl", "monthlyProdSl",
@@ -1101,7 +1101,7 @@ OrderPiDiBHLInProdSalesFlat <- merge(merge(merge(merge(merge(merge(merge(merge(m
                                                                    by = c("PIDI_ModelName", "PIDI_Color", "BHLOrderMonthYear", "DiSl", "monthYear", "monthlyBHLInSl")),
                                                              unusedCKDQuant,
                                                              all = T,
-                                                             by = c("PIDI_ModelName", "PIDI_Color", "BHLOrderMonthYear", "DiSl", "monthYear", "monthlyBHLInSl", "monthlyProdSl")),
+                                                             by = c("PIDI_ModelName", "PIDI_Color", "BHLOrderMonthYear", "DiSl", "monthYear", "monthlyBHLInSl")),
                                                        prodDays,
                                                        all = T,
                                                        by = c("PIDI_ModelName", "PIDI_Color", "BHLOrderMonthYear", "DiSl", "monthYear", "monthlyBHLInSl", "monthlyProdSl")),
