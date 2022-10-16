@@ -1,0 +1,161 @@
+from pathlib import Path
+from warnings import simplefilter
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import datetime as dt
+
+simplefilter("ignore")  # ignore warnings to clean up output cells
+
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+scale = StandardScaler()
+from scipy import stats
+import openpyxl
+
+from scipy.signal import periodogram
+from statsmodels.graphics.tsaplots import plot_pacf
+
+
+
+
+def seasonal_weight(data_dir, sheet_name, dateCol, timeFrame, seasonalVar):
+    """
+    Return seasonal weights of the seasonal var within the timeframe
+    
+    >>> data_dir = Path("D:/Python/Input/HondaData/IndependentVarsPy.xlsx")
+    >>> sheet_name = "GregorianHirjiCalendarSales"
+    >>> dateCol = "GregorianDate"
+    >>> timeFrame = "HijriYear"
+    >>> seasonalVar = "HijriMonth"
+    >>> hijrimonthPerYearSeasonalWeight = seasonal_weight(data_dir, sheet_name, dateCol, timeFrame, seasonalVar).mean()
+
+    Sales  1             0.834862
+       2             0.841673
+       3             0.795200
+       4             0.796001
+       5             0.957686
+       6             1.056326
+       7             1.036962
+       8             0.971593
+       9             1.405286
+       10            1.005048
+       11            0.897577
+       12            1.401788
+    dtype: float64
+    """
+
+    # dataload
+    dailySales = pd.read_excel(data_dir,
+                            sheet_name = sheet_name,
+                            parse_dates=[dateCol])
+
+    #dailyHijriSales = dailyHijriSales.rename(columns={'0': 'Amount'})
+    #dailyHijriSales = dailyHijriSales.loc[dailyHijriSales['GregorianDate'] > '2017-09-01']
+
+    dailySales = dailySales.set_index(dateCol).to_period(freq='D')
+
+    #Discard bad years
+    salesData = dailySales.loc[(dailySales.HijriYear == 1339) |
+                                (dailySales.HijriYear == 1440) |
+                                (dailySales.HijriYear == 1442) |
+                                (dailySales.HijriYear == 1443)]
+    
+    timeFrame = salesData[timeFrame]
+    seasonalVar = salesData[seasonalVar]
+
+    #Pivot Data
+    Pivot = salesData.pivot_table(index = timeFrame, columns= seasonalVar, values=["Sales"], aggfunc = 'sum')
+
+    
+    # Small seasonality within defined time frame
+    seasonalChange = Pivot.copy()
+    seasonalChange.Sales = 0
+    seasonalChange.Sales.iloc[:,0] = 1
+
+    for longRange in Pivot.index:
+        for shortRange in range(1, len(Pivot.columns)):
+            seasonalChange.loc[longRange, ('Sales', shortRange+1)] = 1 + ((Pivot.loc[longRange, ('Sales', shortRange+1)] - Pivot.loc[longRange, ('Sales', shortRange)]) / Pivot.loc[longRange, ('Sales', shortRange)])
+    seasonalChange
+
+    # Cumulative change
+    cumulativeChange = seasonalChange.copy()
+    cumulativeChange.Sales[2:len(seasonalChange.columns)] = 0
+
+    for longRange in seasonalChange.index:
+        for shortRange in range(1, len(seasonalChange.columns)):
+            cumulativeChange.loc[longRange, ('Sales', shortRange+1)] = cumulativeChange.loc[longRange, ('Sales', shortRange)] * cumulativeChange.loc[longRange, ('Sales', shortRange+1)]
+
+    cumulativeChangeSum = cumulativeChange.sum(axis=1)
+
+    #Total sales of the first month
+    firstCycleTTLSales = Pivot.iloc[0,:].sum()
+
+    #Constant total sales
+    constantTTLShortRangeSales = cumulativeChange.copy()
+    constantTTLShortRangeSales.Sales[2:len(seasonalChange.columns)] = 0
+
+    for longRange in seasonalChange.index:
+        for shortRange in range(1, len(seasonalChange.columns)+1):
+            constantTTLShortRangeSales.loc[longRange, ('Sales', shortRange)] = (firstCycleTTLSales / cumulativeChangeSum[longRange]) * cumulativeChange.loc[longRange, ('Sales', shortRange)]
+
+    # Uniform scale
+    firstLongrangeTTLSales = Pivot.iloc[0,:].sum()
+
+    shortrangeSeasonalWeight = constantTTLShortRangeSales.copy()
+    shortrangeSeasonalWeight.Sales[2:len(seasonalChange.columns)] = 0
+
+    for longRange in seasonalChange.index:
+        for shortRange in range(1, len(seasonalChange.columns)+1):
+            shortrangeSeasonalWeight.loc[longRange, ('Sales', shortRange)] = (len(seasonalChange.columns) / firstLongrangeTTLSales) * constantTTLShortRangeSales.loc[longRange, ('Sales', shortRange)]
+
+    return shortrangeSeasonalWeight
+
+
+### Function output: Hijri month seasonality in Hijri year
+data_dir = Path("D:/Python/Input/HondaData/IndependentVarsPy.xlsx")
+sheet_name = "GregorianHirjiCalendarSales"
+dateCol = "GregorianDate"
+timeFrame = "HijriYear"
+seasonalVar = "HijriMonth"
+
+#Seasonal function
+hijrimonthPerYearSeasonalWeight = seasonal_weight(data_dir, sheet_name, dateCol, timeFrame, seasonalVar).mean()
+
+print(hijrimonthPerYearSeasonalWeight)
+
+#Plot weights
+ax = hijrimonthPerYearSeasonalWeight.Sales.plot(linewidth = 3, color="0.5", title="Seasonal weight")
+
+
+### Function output: Weekday seasonality in Hijri Month
+data_dir = Path("D:/Python/Input/HondaData/IndependentVarsPy.xlsx")
+sheet_name = "GregorianHirjiCalendarSales"
+dateCol = "GregorianDate"
+timeFrame = "HijriMonth"
+seasonalVar = "WeekdayNum"
+
+#Seasonal function
+WeekdayperMonthSeasonalWeight = seasonal_weight(data_dir, sheet_name, dateCol, timeFrame, seasonalVar).mean()
+
+print(WeekdayperMonthSeasonalWeight)
+
+#Plot weights
+ax = WeekdayperMonthSeasonalWeight.Sales.plot(linewidth = 3, color="0.5", title="Seasonal weight")
+
+
+### Function output: Monthday seasonality in Hijri Months
+data_dir = Path("D:/Python/Input/HondaData/IndependentVarsPy.xlsx")
+sheet_name = "GregorianHirjiCalendarSales"
+dateCol = "GregorianDate"
+timeFrame = "HijriMonth"
+seasonalVar = "HijriDayPerMonth"
+
+#Seasonal function
+monthdayPerMonthSeasonalWeight = seasonal_weight(data_dir, sheet_name, dateCol, timeFrame, seasonalVar)
+
+#Plot weights
+ax = monthdayPerMonthSeasonalWeight.Sales.iloc[8, :].plot(linewidth = 1, color=".4", title="Seasonal weight")
+ax = monthdayPerMonthSeasonalWeight.Sales.iloc[11, :].plot(linewidth = 1, color=".8", title="Seasonal weight")
