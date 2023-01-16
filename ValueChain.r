@@ -163,7 +163,7 @@ BHLInLoad <- function(path){
            BHLIn_Model = "Model",
            BHLIn_Type = "Type",
            BHLIn_Color = "Color",
-           commercialInvoiceNo = "Invoice", #substitute "-" with ""
+           commercialInvoiceNo = "PC NO", #substitute "-" with ""
            LotSize = "Lot Size",
            ArrivalAtCTGDate = "Arrival Date @ CTG Port",
            BHLArrivalDate = "BHL Arrival Date",
@@ -534,59 +534,63 @@ prodKDP <- prodKDPdataLoad("Input/ProductionKDP")
 #                   erpSalesLoad("Input/ERPData/erpSales/202204-20220613_sls_smry.xls", "Sheet - 2", "04-2022"))
 
 
-#Part 3.2: Planned data load####
-
-## Niguri production plan - for the monthly view comparison####
-
-# remove niguri date from all, and add di date.
-# Production di + 3
-# Sales 
-
-niguriPath = "Input/Niguri/202207/1stSeihan/04072022 99KI Operational Niguri_Updated.xlsx"
-niguriRange = "B10:AK4000"
-
-
-#niguri BHL in plan
-
-
-#Niguri production plan
-prodPlan <- niguriLoad(niguriPath, niguriRange,
-                       "ACT+FCT", "Production") %>%
-  select(-c("Lot")) %>%
-  rename(Production_Plan_Quantity = "NiguriQuantity")
-
-
-##Niguri Sales plan####
-
-salesPlan <- niguriLoad(niguriPath, niguriRange,
-                        "ACT+FCT", "TTL Wholesale") %>%
-  select(-c("Lot")) %>%
-  rename(salesQuantity = "NiguriQuantity")
-
-
-##Load OK CKD Stock Niguri plan####
-
-# okCKDStockPlan <- niguriLoad(niguriPath, niguriRange,
-#                              "ACT+FCT", "CKD OK Stock") %>%
-#   rename(OKCKDStockQuantity = "NiguriQuantity")
-
-
-##Load OK CBU stock from Niguri Niguri plan####
-
-# OKCBUStockPlan <- niguriLoad(niguriPath, niguriRange,
-#                              "ACT+FCT", "CBU OK Stock") %>%
-#   rename(CBU_Quantity = "NiguriQuantity")
-
-
-
-## Join everything with against DI
-
-
-rm(niguriPath, niguriRange)
+# #Part 3.2: Planned data load####
+# 
+# ## Niguri production plan - for the monthly view comparison####
+# 
+# # remove niguri date from all, and add di date.
+# # Production di + 3
+# # Sales 
+# 
+# niguriPath = "Input/Niguri/202207/1stSeihan/04072022 99KI Operational Niguri_Updated.xlsx"
+# niguriRange = "B10:AK4000"
+# 
+# 
+# #niguri BHL in plan
+# 
+# 
+# #Niguri production plan
+# prodPlan <- niguriLoad(niguriPath, niguriRange,
+#                        "ACT+FCT", "Production") %>%
+#   select(-c("Lot")) %>%
+#   rename(Production_Plan_Quantity = "NiguriQuantity")
+# 
+# 
+# ##Niguri Sales plan####
+# 
+# salesPlan <- niguriLoad(niguriPath, niguriRange,
+#                         "ACT+FCT", "TTL Wholesale") %>%
+#   select(-c("Lot")) %>%
+#   rename(salesQuantity = "NiguriQuantity")
+# 
+# 
+# ##Load OK CKD Stock Niguri plan####
+# 
+# # okCKDStockPlan <- niguriLoad(niguriPath, niguriRange,
+# #                              "ACT+FCT", "CKD OK Stock") %>%
+# #   rename(OKCKDStockQuantity = "NiguriQuantity")
+# 
+# 
+# ##Load OK CBU stock from Niguri Niguri plan####
+# 
+# # OKCBUStockPlan <- niguriLoad(niguriPath, niguriRange,
+# #                              "ACT+FCT", "CBU OK Stock") %>%
+# #   rename(CBU_Quantity = "NiguriQuantity")
+# 
+# 
+# 
+# ## Join everything with against DI
+# 
+# 
+# rm(niguriPath, niguriRange)
 
 #Part 4: Combine data ####
 
 #Look up model color against DI color code
+
+#Temp solve dream 110 new problem by removing double di model name entry
+DIPILU <- distinct(DIPILU, PIDI_ModelName, PIDI_ColorCode, .keep_all = TRUE)
+
 diMC <- merge(di, DIPILU, all.x = T, all.y = F,
               by = c("PIDI_ModelName", "PIDI_ColorCode")) %>%
   select("commercialInvoiceNo", "BHLOrderMonthYear", "DIDate",
@@ -669,6 +673,8 @@ monthlyKDPProd <- prodKDPDI[!is.na(prodMonth),
                             by = .(DIMonthYear, BHLArrivalMonth, prodMonth, PIDI_ModelName, PIDI_Color)]
 
 #Arrange data according to proper model-color serial
+PIColorsl <- distinct(PIColorsl, PIDI_ModelName, PIDI_Color, .keep_all = TRUE)
+
 monthlyKDPProd <- merge(monthlyKDPProd, PIColorsl,
                         all.x = T, all.y = F,
                         by = c("PIDI_ModelName", "PIDI_Color")) %>%
@@ -1199,6 +1205,19 @@ OrderPiDiBHLInProdSalesFlat2 <- merge(OrderPiDiBHLInProdSalesFlat2, outtemp3,
            "Type", "monthYear", "Quantity",
            "monthlyBHLInSlRank", "monthlyProdSlRank", "monthlySalesSlRank"))
 
+# Other data for export####
+
+## Daily, weekly sales data####
+kdplookup <- select(lookupload, c("ModelCode", "ProductKDP_Color", "PIDI_ModelName", "PIDI_Color"))
+
+dailySalesKDP <- filter(prodKDP, prodKDP$EFJoinDate > '2021-06-01')
+
+dailySalesData <- merge(select(dailySalesKDP, c("prodKDPModelCode", "prodKDPColor", "EFJoinDate", "salesDate", "count")),
+                    kdplookup,
+                    all.x = T, all.y = F,
+                    by.x = c("prodKDPModelCode", "prodKDPColor"),
+                    by.y = c("ModelCode", "ProductKDP_Color"))
+
 #Part 9: Export####
 
 write.csv(OrderPiDiBHLInProdSales, "Output/valueChain/OrderPiDiBHLInProdSales.csv", na = "NA")
@@ -1207,7 +1226,7 @@ write.csv(OrderPiDiBHLInProdSalesFlat2, "Output/valueChain/OrderPiDiBHLInProdSal
 
 write.csv(OrderPiDiBHLInProdSalesNonDuplicate, "Output/valueChain/OrderPiDiBHLInProdSalesnoDuplicate.csv", na = "NA")
 
-
+write.csv(dailySalesData, "Output/valueChain/dailySalesData.csv")
 
 # rm(diMC, i, BHLInCycleProd, BHLInQuant, DIBHLIn, DICycleBHLIn, diMC, DIPILU, diQuant,
 #    modelCode, orderPi, OrderPiDi, orderQuant, PIColorsl, prodCycleSales, prodDays, prodKDPDI,
